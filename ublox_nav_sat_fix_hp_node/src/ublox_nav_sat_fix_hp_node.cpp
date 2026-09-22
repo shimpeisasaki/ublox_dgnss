@@ -14,6 +14,7 @@
 
 #include <vector>
 
+#include "geometry_msgs/msg/twist_with_covariance_stamped.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_components/register_node_macro.hpp"
 #include "sensor_msgs/msg/nav_sat_fix.hpp"
@@ -23,6 +24,7 @@
 #include "ublox_ubx_msgs/msg/ubx_nav_cov.hpp"
 #include "ublox_ubx_msgs/msg/ubx_nav_hp_pos_llh.hpp"
 #include "ublox_ubx_msgs/msg/ubx_nav_status.hpp"
+#include "ublox_ubx_msgs/msg/ubx_nav_vel_ned.hpp"
 
 using std::placeholders::_1;
 
@@ -50,6 +52,9 @@ public:
 
     // Create publishers
     nav_sat_fix_pub_ = this->create_publisher<sensor_msgs::msg::NavSatFix>("fix", qos, pub_options);
+    fix_velocity_pub_ =
+      this->create_publisher<geometry_msgs::msg::TwistWithCovarianceStamped>(
+      "fix_velocity", qos, pub_options);
 
     // Create subscribers
     ubx_nav_hp_pos_llh_sub_ = this->create_subscription<ublox_ubx_msgs::msg::UBXNavHPPosLLH>(
@@ -61,6 +66,9 @@ public:
     ubx_nav_status_sub_ = this->create_subscription<ublox_ubx_msgs::msg::UBXNavStatus>(
       "ubx_nav_status", qos,
       std::bind(&UbloxNavSatHpFixNode::nav_sta_callback, this, std::placeholders::_1));
+    ubx_nav_vel_ned_sub_ = this->create_subscription<ublox_ubx_msgs::msg::UBXNavVelNED>(
+      "ubx_nav_vel_ned", qos,
+      std::bind(&UbloxNavSatHpFixNode::nav_vel_ned_callback, this, std::placeholders::_1));
   }
 
   UBLOX_NAV_SAT_FIX_HP_NODE_LOCAL
@@ -72,10 +80,12 @@ private:
   // void nav_sta_callback(const ublox_ubx_msgs::msg::UBXNavStatus::SharedPtr nav_sta_msg);
 
   rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr nav_sat_fix_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::TwistWithCovarianceStamped>::SharedPtr fix_velocity_pub_;
 
   rclcpp::Subscription<ublox_ubx_msgs::msg::UBXNavHPPosLLH>::SharedPtr ubx_nav_hp_pos_llh_sub_;
   rclcpp::Subscription<ublox_ubx_msgs::msg::UBXNavCov>::SharedPtr ubx_nav_cov_sub_;
   rclcpp::Subscription<ublox_ubx_msgs::msg::UBXNavStatus>::SharedPtr ubx_nav_status_sub_;
+  rclcpp::Subscription<ublox_ubx_msgs::msg::UBXNavVelNED>::SharedPtr ubx_nav_vel_ned_sub_;
 
   // std::vector<double> enu_covariance_diagonal_;
   std::array<double, POS_COV_ARR_SIZE> enu_pos_cov_;
@@ -165,6 +175,27 @@ private:
 
     // set flag to show we have received fresh data for this message
     have_recd_enu_pos_cov_ = true;
+  }
+
+  UBLOX_NAV_SAT_FIX_HP_NODE_LOCAL
+  void nav_vel_ned_callback(
+    const ublox_ubx_msgs::msg::UBXNavVelNED::SharedPtr ubx_vel_ned_msg)
+  {
+    geometry_msgs::msg::TwistWithCovarianceStamped velocity_msg;
+    velocity_msg.header = ubx_vel_ned_msg->header;
+
+    velocity_msg.twist.twist.linear.x = ubx_vel_ned_msg->vel_e * 1e-2;
+    velocity_msg.twist.twist.linear.y = ubx_vel_ned_msg->vel_n * 1e-2;
+    velocity_msg.twist.twist.linear.z = -ubx_vel_ned_msg->vel_d * 1e-2;
+
+    const double velocity_variance = ubx_vel_ned_msg->s_acc * 1e-2 *
+      ubx_vel_ned_msg->s_acc * 1e-2;
+    velocity_msg.twist.covariance[0] = velocity_variance;
+    velocity_msg.twist.covariance[7] = velocity_variance;
+    velocity_msg.twist.covariance[14] = velocity_variance;
+    velocity_msg.twist.covariance[21] = -1.0;
+
+    fix_velocity_pub_->publish(velocity_msg);
   }
 
   UBLOX_NAV_SAT_FIX_HP_NODE_LOCAL

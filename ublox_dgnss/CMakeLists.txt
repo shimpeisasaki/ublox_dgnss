@@ -19,4 +19,9 @@ install(
   FILES_MATCHING PATTERN "*.toml"
 )
 
+install(
+  DIRECTORY udev/
+  DESTINATION share/${PROJECT_NAME}/udev
+)
+
 ament_package()

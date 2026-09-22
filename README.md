@@ -12,9 +12,20 @@ This driver supports multiple u-blox device families including ZED-F9P, ZED-F9R,
 
 This release works with Rolling, Kilted, Jazzy and Humble.
 
-You may need to create a udev rule as follows:
+Install the provided udev rule before starting the driver:
 
-/etc/udev/rules.d/99-ublox-gnss.rules
+```bash
+sudo cp ublox_dgnss/udev/99-ublox-gnss.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=usb --attr-match=idVendor=1546
+```
+
+The rule grants members of the `plugdev` group access to the F9P/F9R USB device. Log out
+and back in after adding yourself to that group if `groups` does not list `plugdev`.
+
+Equivalent rules for all supported device families are:
+
+`/etc/udev/rules.d/99-ublox-gnss.rules`
 ```
 # UBLOX ZED-F9P/F9R (CDC-ACM)
 ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a9", MODE="0666", GROUP="plugdev", ENV{ID_MM_DEVICE_IGNORE}="1"
@@ -72,6 +83,27 @@ ros2 launch ublox_dgnss ublox_rover_hpposecef.launch.py
 
 ``` zsh
 ros2 launch ublox_dgnss ublox_rover_hpposllh.launch.py
+```
+
+### gnss_launch-compatible topics
+
+The ZED-F9P compatibility launch publishes high-precision position and ENU velocity at 4 Hz
+using the same topic names and message types as `gnss_launch`:
+
+``` zsh
+ros2 launch ublox_dgnss gnss_launch_compatible.launch.py
+```
+
+``` text
+/gnss/fix           sensor_msgs/msg/NavSatFix
+/gnss/fix_velocity  geometry_msgs/msg/TwistWithCovarianceStamped
+```
+
+Verify the output with:
+
+``` zsh
+ros2 topic echo /gnss/fix --once
+ros2 topic echo /gnss/fix_velocity --once
 ```
 
 ## Services

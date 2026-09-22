@@ -1,0 +1,2 @@
+# u-blox ZED-F9P/F9R
+SUBSYSTEM=="usb", ATTR{idVendor}=="1546", ATTR{idProduct}=="01a9", MODE="0660", GROUP="plugdev", ENV{ID_MM_DEVICE_IGNORE}="1"

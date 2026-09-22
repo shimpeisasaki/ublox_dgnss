@@ -22,6 +22,7 @@ find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_core REQUIRED)
 find_package(ament_cmake_test REQUIRED)
 # find_package(ament_cmake_uncrustify REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -38,6 +39,7 @@ add_library(ublox_nav_sat_fix_hp_components SHARED
 )
 
 target_link_libraries(ublox_nav_sat_fix_hp_components PUBLIC
+  ${geometry_msgs_TARGETS}
   ${sensor_msgs_TARGETS}
   ${std_msgs_TARGETS}
   ${ublox_ubx_interfaces_TARGETS}
