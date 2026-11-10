@@ -87,7 +87,8 @@ ros2 launch ublox_dgnss ublox_rover_hpposllh.launch.py
 
 ### gnss_launch-compatible topics
 
-The ZED-F9P compatibility launch publishes high-precision position and ENU velocity at 4 Hz
+The ZED-F9P compatibility launch configures a 5 Hz measurement/navigation rate
+(`CFG_RATE_MEAS=200` ms, `CFG_RATE_NAV=1`) and publishes high-precision position and ENU velocity
 using the same topic names and message types as `gnss_launch`:
 
 ``` zsh
@@ -99,12 +100,63 @@ ros2 launch ublox_dgnss gnss_launch_compatible.launch.py
 /gnss/fix_velocity  geometry_msgs/msg/TwistWithCovarianceStamped
 ```
 
+This launch defaults to standalone positioning: `rtcm_input_enabled:=false` disables
+both ROS correction input from `/ntrip_client/rtcm` and RTCM3 input on receiver USB.
+It overrides only the measurement/navigation rate and USB protocol/output settings
+in receiver RAM: NMEA output is disabled, and NAV-HPPOSLLH,
+NAV-STATUS, NAV-COV, NAV-VELNED and RXM-RTCM output rates are set to 1 (each applicable epoch).
+RXM-RTCM is receiver status output; enabling it does not enable correction input.
+The launch does not write BBR or Flash.
+
+Satellite systems, minimum satellite count, elevation and C/N0 masks are managed in the
+receiver's saved configuration, separately from this launch. The current deployment uses
+ZED-F9P HPG 1.32 with an HX-CSX601A antenna, all six supported systems enabled
+(GPS, GLONASS, Galileo, BeiDou, QZSS and SBAS), at least 10 satellites for navigation,
+minimum elevation 30 degrees and minimum C/N0 30 dB-Hz. These values were saved to BBR
+and Flash and read back on 2026-11-10; retention after a power cycle has not been checked.
+Other receivers must have their own saved configuration verified before use. The F9P TOML
+file selects the driver's supported configuration keys; it does not provide values to
+overwrite all receiver settings.
+
+Position/covariance epoch matching and invalid-fix handling in `ublox_nav_sat_fix_hp_node`
+still require improvement. A successful build or a configured 5 Hz rate does not validate
+the quality or freshness of `/gnss/fix`.
+
 Verify the output with:
 
 ``` zsh
 ros2 topic echo /gnss/fix --once
 ros2 topic echo /gnss/fix_velocity --once
 ```
+
+### Optional RTK preparation
+
+`gnss_rtk.launch.py` explicitly enables ROS RTCM forwarding and USB RTCM3 input and
+starts the existing NTRIP client. The default `rtk_source:=cit` selects the university
+caster `taroz.net:2101/CIT`. Credentials are read at launch execution from
+`~/.config/ublox_dgnss/ntrip_cit.json` (a local, Git-external JSON object with `username`
+and `password` string fields); `credentials_file` can select another file. The configured
+machine has this file with mode 0600. No credentials are stored in this repository.
+
+`rtk_source:=matsudo` selects the free GeoRTK `geortk.jp:2101/Matsudo` stream without
+loading the CIT credential file. `rtk_source:=custom` accepts a different host and
+mountpoint. Host, port, HTTPS and credentials can be overridden with launch arguments;
+`NTRIP_USERNAME` / `NTRIP_PASSWORD` also supply explicit credential overrides.
+Missing CIT credentials fail before starting the receiver or NTRIP client.
+
+In cat_robot bringup, mapping and navigation, `gnss_mode:=rtk` enables CIT by default;
+add `rtk_source:=matsudo` to use Matsudo. The ordinary compatibility launch remains
+standalone by default. Switching modes/sources requires restarting the launch.
+
+The client keeps healthy streams open. After an error or remote close, retries wait
+30, 60, 120, 240, then at most 300 seconds. It no longer ends transfers after ten
+receive callbacks. Explicit parameter changes interrupt the stream to apply the new
+configuration; shutdown also interrupts promptly. Credential/Authorization debug
+logging is disabled. The old `reconnect_every_n_cycles` parameter was removed.
+
+See [RTK preparation for the Tsudanuma campus](docs/rtk_tsudanuma.md) for connection
+checks, commands and the distinction between network reception and an actual RTK fix.
+The RTK launch has not been run against the receiver.
 
 ## Services
 

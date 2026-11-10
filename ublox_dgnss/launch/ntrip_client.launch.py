@@ -5,6 +5,7 @@ from launch.substitutions import LaunchConfiguration
 from launch.substitutions import TextSubstitution, EnvironmentVariable
 from launch_ros.actions import ComposableNodeContainer
 from launch_ros.descriptions import ComposableNode
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -36,14 +37,14 @@ def generate_launch_description():
   )
 
   params = [{
-    'use_https': LaunchConfiguration('use_https'),
-    'host': LaunchConfiguration('host'),
-    'port': LaunchConfiguration('port'),
-    'mountpoint': LaunchConfiguration('mountpoint'),
-    'username': LaunchConfiguration('username'),
-    'password': LaunchConfiguration('password'),
-    'log_level': LaunchConfiguration('log_level'),
-    'maxage_conn': LaunchConfiguration('maxage_conn'),
+    'use_https': ParameterValue(LaunchConfiguration('use_https'), value_type=bool),
+    'host': ParameterValue(LaunchConfiguration('host'), value_type=str),
+    'port': ParameterValue(LaunchConfiguration('port'), value_type=int),
+    'mountpoint': ParameterValue(LaunchConfiguration('mountpoint'), value_type=str),
+    'username': ParameterValue(LaunchConfiguration('username'), value_type=str),
+    'password': ParameterValue(LaunchConfiguration('password'), value_type=str),
+    'log_level': ParameterValue(LaunchConfiguration('log_level'), value_type=str),
+    'maxage_conn': ParameterValue(LaunchConfiguration('maxage_conn'), value_type=int),
   }]
 
   container1 = ComposableNodeContainer(

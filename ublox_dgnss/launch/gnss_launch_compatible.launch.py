@@ -1,10 +1,11 @@
-"""Launch a ZED-F9P rover with gnss_launch-compatible output topics."""
+"""Launch a ZED-F9P at 5 Hz; RTCM correction input is opt-in."""
 
 import launch
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, TextSubstitution
 from launch_ros.actions import ComposableNodeContainer
 from launch_ros.descriptions import ComposableNode
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -23,13 +24,21 @@ def generate_launch_description():
     'frame_id',
     default_value='gps',
     description='Frame ID used by the published GNSS messages')
+  rtcm_input_arg = DeclareLaunchArgument(
+    'rtcm_input_enabled', default_value='false', choices=['true', 'false'],
+    description='Enable ROS RTCM forwarding and RTCM3 input on receiver USB')
+  rtcm_input = ParameterValue(LaunchConfiguration('rtcm_input_enabled'), value_type=bool)
 
   receiver_parameters = [
     {'DEVICE_FAMILY': 'F9P'},
     {'DEVICE_SERIAL_STRING': device_serial_string},
     {'FRAME_ID': frame_id},
+    {'RTCM_INPUT_ENABLED': rtcm_input},
+    # Satellite selection and quality masks are managed in receiver BBR/Flash.
+    # Only the rate and USB protocol/output settings are overridden in RAM.
+    {'CFG_USBINPROT_RTCM3X': rtcm_input},
     {'CFG_USBOUTPROT_NMEA': False},
-    {'CFG_RATE_MEAS': 250},
+    {'CFG_RATE_MEAS': 200},
     {'CFG_RATE_NAV': 1},
     {'CFG_MSGOUT_UBX_NAV_HPPOSLLH_USB': 1},
     {'CFG_MSGOUT_UBX_NAV_STATUS_USB': 1},
@@ -73,6 +82,7 @@ def generate_launch_description():
     log_level_arg,
     device_serial_string_arg,
     frame_id_arg,
+    rtcm_input_arg,
     receiver_container,
     output_container,
   ])

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include <cstdio>
+#include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <curl/curl.h>
@@ -56,7 +57,6 @@ public:
     declare_parameter("password", "password");
     declare_parameter("log_level", "INFO");
     declare_parameter("maxage_conn", 30);
-    declare_parameter("reconnect_every_n_cycles", 1000);
 
     use_https_ = get_parameter("use_https").as_bool();
     host_ = get_parameter("host").as_string();
@@ -66,7 +66,6 @@ public:
     password_ = get_parameter("password").as_string();
     log_level_ = get_parameter("log_level").as_string();
     maxage_conn_ = get_parameter("maxage_conn").as_int();
-    reconnect_every_n_cycles_ = get_parameter("reconnect_every_n_cycles").as_int();
 
     // Initialize pending values before registering callback to avoid race
     pending_use_https_ = use_https_;
@@ -77,12 +76,6 @@ public:
     pending_password_ = password_;
     pending_log_level_ = log_level_;
     pending_maxage_conn_ = maxage_conn_;
-    pending_reconnect_every_n_cycles_ = reconnect_every_n_cycles_;
-
-    // Every n cycles, the connection will be closed and re-established to avoid stale
-    // connections. This is useful for NTRIP casters that may close connections.
-    fresh_connect_.store(false);
-    fresh_connect_count_ = 0;
 
     // Register parameter change callback for runtime reconfiguration
     parameters_callback_handle_ =
@@ -95,18 +88,10 @@ public:
 
     RCLCPP_INFO(this->get_logger(), "ntrip connection url: '%s'", url.c_str());
 
-    std::string userpwd = username_ + ":" + password_;
-    RCLCPP_DEBUG(this->get_logger(), "userpwd: '%s'", userpwd.c_str());
-
     // Create the publisher for rtcm_msgs::msg::Message
     rtcm_pub_ = this->create_publisher<rtcm_msgs::msg::Message>("/ntrip_client/rtcm", 10);
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
-
-    // Set the desired record count - libcurl will keep reading from the ntrip castor indefinitly
-    // this is used to force it to exit in WriteCallback. In DoStreaming it will check to see if
-    // streaing_exit_ is true, such that the ros2 node can terminate cleanly
-    int desiredCount = 10;
 
     auto handle = curlHandle_->handle;
     if (handle) {
@@ -116,9 +101,10 @@ public:
       curl_easy_setopt(handle, CURLOPT_FAILONERROR, true);
       curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, &NTRIPClientNode::WriteCallback);
       curl_easy_setopt(handle, CURLOPT_WRITEDATA, this);
-      curl_easy_setopt(
-        handle, CURLOPT_PRIVATE,
-        reinterpret_cast<void *>(desiredCount));
+      // Keep healthy streams open; progress handles shutdown and explicit reconfiguration.
+      curl_easy_setopt(handle, CURLOPT_NOPROGRESS, 0L);
+      curl_easy_setopt(handle, CURLOPT_XFERINFOFUNCTION, &NTRIPClientNode::ProgressCallback);
+      curl_easy_setopt(handle, CURLOPT_XFERINFODATA, this);
 
       // Advertise NTRIP v2. Modern casters (e.g. Geoscience Australia) only serve the
       // stream when the request carries this header; without it they reject it (HTTP 404)
@@ -142,12 +128,10 @@ private:
   std::thread streamingThread_;
 
   std::atomic<bool> streaming_exit_{false};
-  bool desired_count_reached_;
 
   // Runtime parameter reconfiguration support
   std::mutex params_mutex_;
   std::atomic<bool> reconfigure_needed_{false};
-  int record_count_{0};
 
   // Pending parameter values (written by param callback, read by streaming thread)
   bool pending_use_https_;
@@ -158,7 +142,6 @@ private:
   std::string pending_password_;
   std::string pending_log_level_;
   long pending_maxage_conn_;
-  long pending_reconnect_every_n_cycles_;
 
   // NTRIP castor connection
   bool use_https_;
@@ -169,10 +152,7 @@ private:
   std::string password_;
   std::string log_level_;
   long maxage_conn_;
-  long reconnect_every_n_cycles_;
 
-  std::atomic<bool> fresh_connect_{false};
-  long fresh_connect_count_;
 
   rclcpp::Publisher<rtcm_msgs::msg::Message>::SharedPtr rtcm_pub_;
 
@@ -232,8 +212,6 @@ private:
         pending_log_level_ = param.as_string();
       } else if (name == "maxage_conn") {
         pending_maxage_conn_ = param.as_int();
-      } else if (name == "reconnect_every_n_cycles") {
-        pending_reconnect_every_n_cycles_ = param.as_int();
       }
     }
 
@@ -248,16 +226,13 @@ private:
   {
     auto handle = curlHandle_->handle;
     std::string url = ConnectionUrl();
-    std::string userpwd = username_ + ":" + password_;
 
     curl_easy_setopt(handle, CURLOPT_URL, url.c_str());
+    const std::string userpwd = username_ + ":" + password_;
     curl_easy_setopt(handle, CURLOPT_USERPWD, userpwd.c_str());
 
-    if (log_level_ != "INFO") {
-      curl_easy_setopt(handle, CURLOPT_VERBOSE, 1L);
-    } else {
-      curl_easy_setopt(handle, CURLOPT_VERBOSE, 0L);
-    }
+    // libcurl verbose logging can expose Authorization headers.
+    curl_easy_setopt(handle, CURLOPT_VERBOSE, 0L);
 
     curl_easy_setopt(handle, CURLOPT_MAXAGE_CONN, maxage_conn_);
 
@@ -271,13 +246,12 @@ private:
     curl_easy_setopt(handle, CURLOPT_TCP_KEEPALIVE, 1L);
     curl_easy_setopt(handle, CURLOPT_TCP_KEEPIDLE, 20L);
     curl_easy_setopt(handle, CURLOPT_TCP_KEEPINTVL, 10L);
+  }
 
-    curl_easy_setopt(handle, CURLOPT_FRESH_CONNECT, fresh_connect_ ? 1L : 0L);
-    if (fresh_connect_.load()) {
-      RCLCPP_DEBUG(this->get_logger(), "Forcing fresh connection to NTRIP caster");
-      fresh_connect_.store(false);
-      fresh_connect_count_ = 0;
-    }
+  static int ProgressCallback(void * userdata, curl_off_t, curl_off_t, curl_off_t, curl_off_t)
+  {
+    auto * node = static_cast<NTRIPClientNode *>(userdata);
+    return node->streaming_exit_.load() || node->reconfigure_needed_.load() || !rclcpp::ok();
   }
 
   static size_t WriteCallback(char * ptr, size_t size, size_t nmemb, void * userdata)
@@ -311,31 +285,6 @@ private:
     // Publish the message
     node->rtcm_pub_->publish(std::move(message));
 
-    node->record_count_++;
-
-    // Get the desired count from the private parameter
-    int desiredCount;
-    curl_easy_getinfo(node->curlHandle_->handle, CURLINFO_PRIVATE, &desiredCount);
-
-    // Check if the desired count is reached
-    if (node->record_count_ >= desiredCount) {
-      node->record_count_ = 0;
-
-      node->desired_count_reached_ = true;
-
-      node->fresh_connect_count_++;
-      if (node->fresh_connect_count_ >= node->reconnect_every_n_cycles_) {
-        RCLCPP_DEBUG(
-          node->get_logger(), "Reconnecting to NTRIP caster after %ld cycles",
-          node->fresh_connect_count_);
-        node->fresh_connect_.store(true);
-      }
-
-      // Returning a value different from the received data size
-      // will signal libcurl to stop receiving further data
-      return size * nmemb - 1;
-    }
-
     // Returning the actual received data size will continue the stream
     return size * nmemb;
   }
@@ -343,24 +292,9 @@ private:
   // DoStreaming with runtime parameter reconfiguration support
   void DoStreaming()
   {
-    while (!streaming_exit_.load()) {
-      desired_count_reached_ = false;
-
-      if (fresh_connect_.load()) {
-        ApplyCurlOptions();
-        fresh_connect_.store(false);
-        fresh_connect_count_ = 0;
-        RCLCPP_WARN(this->get_logger(), "Fresh connection to NTRIP caster");
-      }
-
-      // Perform the request
-      CURLcode res = curl_easy_perform(curlHandle_->handle);
-
-      // make sure we dont do a fresh connect on the next cycle if we just did one
-      curl_easy_setopt(curlHandle_->handle, CURLOPT_FRESH_CONNECT, 0L);
-
-      // Reconfigure after perform returns (handle is idle)
-      // — tightest response to param changes
+    int retry_delay_seconds = 30;
+    while (!streaming_exit_.load() && rclcpp::ok()) {
+      // Apply pending values only while the curl handle is idle.
       if (reconfigure_needed_.load()) {
         std::lock_guard<std::mutex> lock(params_mutex_);
 
@@ -373,7 +307,6 @@ private:
         password_ = pending_password_;
         log_level_ = pending_log_level_;
         maxage_conn_ = pending_maxage_conn_;
-        reconnect_every_n_cycles_ = pending_reconnect_every_n_cycles_;
 
         // Reconfigure curl with new values
         ApplyCurlOptions();
@@ -384,40 +317,31 @@ private:
           this->get_logger(),
           "Reconfigured NTRIP connection: %s", ConnectionUrl().c_str());
 
-        // Skip stale res handling — immediately perform with new config
+        retry_delay_seconds = 30;
+      }
+
+      // Perform the request
+      CURLcode res = curl_easy_perform(curlHandle_->handle);
+
+      if (streaming_exit_.load() || !rclcpp::ok()) {
+        break;
+      }
+
+      if (reconfigure_needed_.load()) {
         continue;
       }
 
-      // Check for any errors
-      if (res != CURLE_OK) {
-
-        if (desired_count_reached_) {
-          RCLCPP_DEBUG(this->get_logger(), "Processed desired count... ");
-          // Sleep for 100 mili seconds
-          rclcpp::sleep_for(std::chrono::milliseconds(100));
-        } else {
-
-          // Retrieve and log the effective URL
-          char * effectiveUrl;
-          curl_easy_getinfo(curlHandle_->handle, CURLINFO_EFFECTIVE_URL, &effectiveUrl);
-          RCLCPP_ERROR(
-            this->get_logger(), "Failed to perform streaming request for URL: %s", effectiveUrl);
-
-          // Retrieve and log the response code
-          long responseCode;
-          curl_easy_getinfo(curlHandle_->handle, CURLINFO_RESPONSE_CODE, &responseCode);
-          RCLCPP_ERROR(this->get_logger(), "Response code: %ld", responseCode);
-
-          // Handle the error
-          RCLCPP_ERROR(
-            this->get_logger(), "Failed to perform streaming request: %s", curl_easy_strerror(res));
-
-          // Sleep for 1 second
-          rclcpp::sleep_for(std::chrono::seconds(1));
-
-          fresh_connect_.store(true);
+      // Back off after errors AND a clean remote close; neither should cause a busy loop.
+      RCLCPP_WARN(
+        this->get_logger(), "NTRIP stream ended (%s); retrying in %d seconds",
+        curl_easy_strerror(res), retry_delay_seconds);
+      for (int step = 0; step < retry_delay_seconds * 10; ++step) {
+        if (streaming_exit_.load() || !rclcpp::ok() || reconfigure_needed_.load()) {
+          break;
         }
+        rclcpp::sleep_for(std::chrono::milliseconds(100));
       }
+      retry_delay_seconds = std::min(retry_delay_seconds * 2, 300);
     }
   }
 
@@ -428,7 +352,9 @@ public:
     streaming_exit_.store(true);
 
     // Wait for the streaming thread to finish
-    streamingThread_.join();
+    if (streamingThread_.joinable()) {
+      streamingThread_.join();
+    }
 
     curlHandle_.reset();
     curl_slist_free_all(http_headers_);
