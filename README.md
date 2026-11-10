@@ -118,9 +118,13 @@ Other receivers must have their own saved configuration verified before use. The
 file selects the driver's supported configuration keys; it does not provide values to
 overwrite all receiver settings.
 
-Position/covariance epoch matching and invalid-fix handling in `ublox_nav_sat_fix_hp_node`
-still require improvement. A successful build or a configured 5 Hz rate does not validate
-the quality or freshness of `/gnss/fix`.
+`ublox_nav_sat_fix_hp_node` publishes only complete, valid, fresh epochs. Position,
+covariance and status must have exactly the same GPS `iTOW`; all three must arrive
+within `sync_timeout_sec` (default 1.0 s) of the first message, and their source header
+timestamps must be no older than that timeout. Arrival order may differ. Missing,
+invalid, expired, duplicate or older epochs produce no position message, rather than
+`NO_FIX` messages or a repeated last position. Consumers must detect missing/stale output.
+See [the output contract](docs/gnss_output_contract.md) for flags, velocity and tests.
 
 Verify the output with:
 

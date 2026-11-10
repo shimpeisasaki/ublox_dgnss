@@ -64,6 +64,9 @@ RUNTIME DESTINATION bin
 
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(epoch_output test/test_epoch_output.py TIMEOUT 150
+    ENV PYTHONNOUSERSITE=1 ROS_DOMAIN_ID=214 ROS_LOCALHOST_ONLY=1)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights
   # uncomment the line when a copyright and license is not present in all source files
