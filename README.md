@@ -1,5 +1,8 @@
 # ublox-dgnss
 
+Workspace maintainers: [local maintenance and adopted references](LOCAL_MAINTENANCE.md)
+identify this fork's Humble baseline and its authoritative GNSS/RTK contracts.
+
 This usb based driver is focused on UBLOX  UBX messaging, for a DGNSS rover and base station. High precision data is available.
 
 A moving base station configuration has been added. This package also supports a fixed base station and moving rover use case.
