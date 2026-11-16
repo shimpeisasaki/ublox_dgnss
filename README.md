@@ -2,6 +2,8 @@
 
 Workspace maintainers: [local maintenance and adopted references](LOCAL_MAINTENANCE.md)
 identify this fork's Humble baseline and its authoritative GNSS/RTK contracts.
+See the [GNSS documentation index](docs/README.md) for current receiver settings,
+remaining validation, and dated comparison/review records.
 
 This usb based driver is focused on UBLOX  UBX messaging, for a DGNSS rover and base station. High precision data is available.
 

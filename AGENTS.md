@@ -2,6 +2,10 @@
 
 Preserve upstream packages, licenses, USB/parameter state machines, and local output validity behavior. docs/gnss_output_contract.md and docs/rtk_tsudanuma.md own output/RTK contracts. Keep credentials outside Git; do not contact receivers or NTRIP as a documentation check. This workspace uses Humble consistently.
 
+docs/README.md indexes current specifications and historical evidence.
+docs/receiver_configuration.md owns the adopted receiver profile and remaining checks.
+Do not treat superseded settings or next-step instructions in docs/history/ as current.
+
 ## Changes and evidence
 
 Update the authoritative feature/interface/launch documentation in the same change. Link to the owner rather than copying current instructions; preserve Logbooks and historical evaluation conditions. Record repository SHA, dirty diff, environment, input identity, command, counts, exit status, failures/skips and unverified conditions. Distinguish offline checks, simulation and hardware evidence.

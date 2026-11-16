@@ -17,6 +17,11 @@ output (`2e88244`). These changes are not interchangeable with an unmodified ups
 - [GNSS output contract](docs/gnss_output_contract.md) owns epoch matching, flags,
   covariance conversion, source timestamps and missing/stale-output handling.
   No valid epoch means no output, not a repeated last position.
+- [Receiver configuration](docs/receiver_configuration.md) owns the adopted receiver
+  profile, saved-setting evidence, PyGPSClient cautions and remaining hardware checks.
+- [Documentation index](docs/README.md) separates current contracts from dated records.
+  Files under `docs/history/` retain superseded plans and results; do not execute their
+  old handoff instructions as current work. Update current owning docs with changes.
 - [RTK preparation and evidence](docs/rtk_tsudanuma.md) owns CIT/Matsudo profiles,
   receiver/correction paths, connection lifetime, credentials policy and unverified Fix/accuracy.
 - [README compatibility section](README.md#gnss_launch-compatible-topics) links these
