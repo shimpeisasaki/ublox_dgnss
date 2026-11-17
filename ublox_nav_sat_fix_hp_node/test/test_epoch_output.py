@@ -15,7 +15,8 @@ import pytest
 import rclpy
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import NavSatFix
-from ublox_ubx_msgs.msg import UBXNavCov, UBXNavHPPosLLH, UBXNavStatus, UBXNavVelNED
+from ublox_ubx_msgs.msg import UBXNavCov, UBXNavHPPosLLH, UBXNavStatus, UBXNavVelNED, GnssStatus
+from rclpy.qos import QoSProfile, DurabilityPolicy
 
 WEEK_MS = 604800000
 TIMEOUT = 0.6
@@ -34,6 +35,7 @@ class Peer:
     def __init__(self, node):
         self.node = node
         self.fixes = []
+        self.reports = []
         self.velocities = []
         types = {'position': UBXNavHPPosLLH, 'covariance': UBXNavCov,
                  'status': UBXNavStatus, 'velocity': UBXNavVelNED}
@@ -42,6 +44,8 @@ class Peer:
         self.publishers = {key: node.create_publisher(kind, topics[key], 10)
                            for key, kind in types.items()}
         self.subscriptions = [
+            node.create_subscription(GnssStatus, 'status', self.reports.append,
+                                     QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)),
             node.create_subscription(NavSatFix, 'fix', self.fixes.append, qos_profile_sensor_data),
             node.create_subscription(TwistWithCovarianceStamped, 'fix_velocity',
                                      self.velocities.append, qos_profile_sensor_data)]
@@ -80,6 +84,9 @@ class Peer:
 
 @pytest.fixture
 def peer(tmp_path):
+    if os.environ.get('GNSS_VALIDATION_LOG_DIR'):
+        tmp_path = Path(os.environ['GNSS_VALIDATION_LOG_DIR']) / uuid.uuid4().hex
+        tmp_path.mkdir(parents=True)
     namespace = '/gnss_epoch_' + uuid.uuid4().hex
     node = rclpy.create_node('synthetic_ubx', namespace=namespace)
     fixture = Peer(node)
@@ -279,3 +286,37 @@ def test_out_of_range_coordinates_and_epoch(peer):
     assert peer.fixes == []
     peer.send_all(peer.bundle(WEEK_MS))
     assert peer.fixes == []
+
+
+@pytest.mark.parametrize('carrier,expected', [(0, GnssStatus.AUTONOMOUS),
+    (1, GnssStatus.RTK_FLOAT), (2, GnssStatus.RTK_FIXED)])
+def test_quality_matches_epoch_and_expires(peer, carrier, expected):
+    messages = peer.bundle()
+    messages['status'].carr_soln_valid = True
+    messages['status'].carr_soln.status = carrier
+    peer.send_all(messages)
+    report = peer.reports[-1]
+    assert report.receiving and report.position_valid and report.solution_valid
+    assert report.solution == expected
+    assert report.fix_itow == report.status_itow == messages['position'].itow
+    assert report.fix_stamp == messages['position'].header.stamp
+    assert report.status_stamp == messages['status'].header.stamp
+    assert list(report.position_covariance) == pytest.approx([9,.5,.75,.5,4,-.25,.75,-.25,16])
+    peer.spin(TIMEOUT + .2)
+    assert not peer.reports[-1].receiving
+    assert not peer.reports[-1].position_valid
+    assert not peer.reports[-1].solution_valid
+
+
+def test_new_no_fix_does_not_inherit_previous_fix_quality(peer):
+    good = peer.bundle()
+    good['status'].carr_soln_valid = True
+    good['status'].carr_soln.status = 2
+    peer.send_all(good)
+    bad = peer.bundle(1200)
+    bad['status'].gps_fix_ok = False
+    peer.send('status', bad['status'])
+    assert peer.reports[-1].solution == GnssStatus.NO_FIX
+    assert not peer.reports[-1].position_valid
+    assert peer.reports[-1].status_itow == 1200
+    assert peer.reports[-1].fix_itow == 1000

@@ -73,3 +73,24 @@ colcon test-result --test-result-base build/ublox_nav_sat_fix_hp_node --verbose
 ```
 
 実機の正常出力率、通信断、RTK Float/Fix、位置誤差の検証は別途必要。
+
+## 受信状況・品質：`status`（互換launchでは `/gnss/status`）
+
+型は `ublox_ubx_msgs/msg/GnssStatus`。Reliable/Transient Local/depth 1で入力更新時と
+100 ms周期に配信し、未受信・途絶中も配信する。headerは評価時刻、status_stampと
+fix_stampは元観測時刻である。購読側は配信停止自体も検出すること。
+
+receivingは期限内のUBX入力を受けていることを表し、USB接続状態そのものではない。
+status_itowとfix_itowを別々に保持し、position_validは最新状態と位置のiTOW一致、
+位置・状態双方のROS時刻と単調時計による鮮度、有効状態が成立する場合だけtrue。
+共分散はfix_itowの位置に対応するENU 3×3。古い値は診断用に残るが、有効な測位として使わない。
+
+solutionは最新NAV-STATUSからUNKNOWN/NO_FIX/AUTONOMOUS/DIFFERENTIAL/RTK_FLOAT/RTK_FIXEDを
+報告する。gps_fix_okと測位形式の不成立はNO_FIX、キャリア解の有効フラグがない場合や
+未知の値はUNKNOWNでsolution_valid=false。diff_solnは補正適用の指標で、CITか松戸かを
+受信機状態から断定しない。RTCMの受信・処理詳細は従来の /ubx_rxm_rtcm を使う。
+衛星数を得るメッセージはこの同期組に含まれないため、衛星数は捏造せず本msgに含めない。
+
+既存のfix/fix_velocityの選別・配信契約は変更しない。キャリア解種別不明でも有効な
+位置は成立し得る。リセット用の品質しきい値・成立継続時間・開始判断は利用側の責務。
+同一iTOWの品質、Float/Fix遷移、欠測時の失効は `test_epoch_output.py` で検証する。

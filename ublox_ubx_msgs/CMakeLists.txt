@@ -31,6 +31,7 @@ if(BUILD_TESTING)
 endif()
 
 rosidl_generate_interfaces(ublox_ubx_msgs
+  "msg/GnssStatus.msg"
   "msg/CarrSoln.msg"
   "msg/CommsPortInfo.msg"
   "msg/CorStatusInfo.msg"

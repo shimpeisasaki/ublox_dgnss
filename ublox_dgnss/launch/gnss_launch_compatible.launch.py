@@ -74,6 +74,7 @@ def generate_launch_description():
         name='ublox_gnss_output',
         remappings=[
           ('fix', '/gnss/fix'),
+          ('status', '/gnss/status'),
           ('fix_velocity', '/gnss/fix_velocity'),
         ]),
     ])

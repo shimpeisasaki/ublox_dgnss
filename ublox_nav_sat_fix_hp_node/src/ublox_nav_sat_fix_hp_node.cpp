@@ -27,6 +27,7 @@
 #include "sensor_msgs/msg/nav_sat_status.hpp"
 #include "ublox_nav_sat_fix_hp_node/visibility_control.h"
 #include "ublox_ubx_msgs/msg/gps_fix.hpp"
+#include "ublox_ubx_msgs/msg/gnss_status.hpp"
 #include "ublox_ubx_msgs/msg/ubx_nav_cov.hpp"
 #include "ublox_ubx_msgs/msg/ubx_nav_hp_pos_llh.hpp"
 #include "ublox_ubx_msgs/msg/ubx_nav_status.hpp"
@@ -68,6 +69,8 @@ public:
       throw std::invalid_argument("sync_timeout_sec must be finite and positive");
     }
 
+    status_pub_ = create_publisher<ublox_ubx_msgs::msg::GnssStatus>(
+      "status", rclcpp::QoS(1).reliable().transient_local());
     auto qos = rclcpp::SensorDataQoS();
     rclcpp::PublisherOptions pub_options;
     pub_options.qos_overriding_options = rclcpp::QosOverridingOptions::with_default_policies();
@@ -85,11 +88,55 @@ public:
     velocity_sub_ = create_subscription<Velocity>("ubx_nav_vel_ned", qos,
         [this](Velocity::ConstSharedPtr msg) {receive(*msg, &Epoch::velocity);});
     expiry_timer_ = create_wall_timer(std::chrono::milliseconds(100),
-        [this]() {expire(SteadyClock::now());});
+        [this]() {expire(SteadyClock::now()); publish_status();});
   }
 
 private:
   double sync_timeout_sec_;
+  std::optional<Status> latest_status_;
+  std::optional<sensor_msgs::msg::NavSatFix> latest_fix_;
+  std::optional<SteadyClock::time_point> received_at_, fix_received_at_, status_received_at_;
+  rclcpp::Publisher<ublox_ubx_msgs::msg::GnssStatus>::SharedPtr status_pub_;
+
+  void publish_status()
+  {
+    using Report = ublox_ubx_msgs::msg::GnssStatus;
+    Report report;
+    report.header.stamp = now();
+    const auto current = SteadyClock::now();
+    auto recent = [&](const auto & t) {
+      return t && std::chrono::duration<double>(current - *t).count() <= sync_timeout_sec_;
+    };
+    report.receiving = recent(received_at_);
+    if (latest_status_) {
+      report.header.frame_id = latest_status_->header.frame_id;
+      report.status_stamp = latest_status_->header.stamp;
+      report.status_itow = latest_status_->itow;
+      report.solution_valid = recent(status_received_at_) && fresh(latest_status_->header);
+      report.differential_applied = report.solution_valid && latest_status_->diff_soln;
+      if (report.solution_valid) {
+        const auto & s = *latest_status_;
+        if (!valid_status(s)) {report.solution = Report::NO_FIX;}
+        else if (!s.carr_soln_valid) {report.solution = Report::UNKNOWN; report.solution_valid = false;}
+        else if (s.carr_soln.status == 2) {report.solution = Report::RTK_FIXED;}
+        else if (s.carr_soln.status == 1) {report.solution = Report::RTK_FLOAT;}
+        else if (s.carr_soln.status == 0) {
+          report.solution = s.diff_soln ? Report::DIFFERENTIAL : Report::AUTONOMOUS;
+        } else {report.solution_valid = false;}
+      }
+    }
+    if (latest_fix_) {
+      report.fix_stamp = latest_fix_->header.stamp;
+      report.fix_itow = *last_fix_epoch_;
+      report.position_covariance = latest_fix_->position_covariance;
+      report.position_valid = recent(fix_received_at_) && fresh(latest_fix_->header) &&
+        latest_status_ && recent(status_received_at_) && fresh(latest_status_->header) &&
+        latest_status_->itow == *last_fix_epoch_ && valid_status(*latest_status_);
+    }
+    report.reason = !report.receiving ? "no fresh UBX input" :
+      (report.position_valid ? "valid matched position" : "no fresh position matching current status");
+    status_pub_->publish(report);
+  }
   std::map<uint32_t, Epoch> epochs_;
   std::optional<uint32_t> last_fix_epoch_;
   std::optional<uint32_t> last_velocity_epoch_;
@@ -142,6 +189,7 @@ private:
     if (msg.itow >= WEEK_MS || !fresh(msg.header)) {
       return;
     }
+    received_at_ = received;
     auto found = epochs_.find(msg.itow);
     if (found == epochs_.end()) {
       if (epochs_.size() >= MAX_PENDING_EPOCHS) {
@@ -159,7 +207,13 @@ private:
     if (!slot) {
       slot = msg;
     }
+    if (found->second.status &&
+      (!latest_status_ || newer(msg.itow, std::optional<uint32_t>(latest_status_->itow)))) {
+      latest_status_ = found->second.status;
+      status_received_at_ = received;
+    }
     publish_ready(msg.itow, found->second);
+    publish_status();
   }
 
   static bool valid_status(const Status & status)
@@ -238,6 +292,8 @@ private:
         fix.position_covariance_type = sensor_msgs::msg::NavSatFix::COVARIANCE_TYPE_KNOWN;
         fix_pub_->publish(fix);
         last_fix_epoch_ = itow;
+        latest_fix_ = fix;
+        fix_received_at_ = SteadyClock::now();
       }
     }
     if (epoch.velocity && newer(itow, last_velocity_epoch_) && cov.vel_cor_valid &&
