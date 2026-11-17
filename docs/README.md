@@ -6,7 +6,7 @@
 | 資料 | 役割 |
 | --- | --- |
 | [受信機設定・確認状況・残課題](receiver_configuration.md) | 採用した5 Hz・衛星選別設定、保存の証拠、PyGPSClientの注意、今後の検証 |
-| [GNSS出力契約](gnss_output_contract.md) | 測位時刻・有効性・共分散・鮮度、無効時非配信、疑似入力試験 |
+| [GNSS出力契約](gnss_output_contract.md) | 測位時刻・有効性・共分散・鮮度、受信状況・RTK品質、位置の無効時非配信、疑似入力試験 |
 | [RTK準備と確認記録](rtk_tsudanuma.md) | CIT/松戸の選択、補正経路、認証情報の扱い、再接続、受信とFixの区別 |
 | [READMEの互換出力・起動設定](../README.md#gnss_launch-compatible-topics) | 導入・起動・出力トピックの入口 |
 | [ローカル保守](../LOCAL_MAINTENANCE.md) | 採用コミット・上流差分・オフライン検証・記録規則 |
@@ -22,3 +22,9 @@
 
 機能変更時は対応する正本を同じ変更で更新し、過去の結果は当時の条件とともに保持する。
 新しい受信機設定・実機検証は、明示指示と新たな結果記録が必要。
+
+地図座標への変換と自己位置リセットは受信機driverの責務ではない。
+接続先は [gnss2map](../../gnss2map/README.md) と
+[emcl2回復仕様](../../emcl2_ros2/GNSS_RECOVERY.md) を参照する。
+[今回の実装検証](validation/gnss_reset_20261117.md) と
+[文書再点検](validation/gnss_docs_review_20261117.md) は、現行契約とは別の評価記録である。

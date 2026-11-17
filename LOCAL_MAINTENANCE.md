@@ -6,7 +6,7 @@ The 2026-11-12 implementation starts at
 `2e8824489c24fd8180eb36acc864046c44bd4417` on local baseline `main`.
 The locally available `upstream/main` and merge base are
 `1cd9ca9e1a959df51d2631e444400bdf0b327c2f`; no remote refresh was performed.
-The implementation branch is `refactor/implementation-20261112`.
+That dated implementation used `refactor/implementation-20261112`; it is a historical baseline, not the current branch selection.
 Retain the upstream package layout, [LICENSE](LICENSE), USB/parameter state machines
 and Humble configuration. Do not rename baselines for consistency alone.
 
@@ -16,7 +16,8 @@ output (`2e88244`). These changes are not interchangeable with an unmodified ups
 
 - [GNSS output contract](docs/gnss_output_contract.md) owns epoch matching, flags,
   covariance conversion, source timestamps and missing/stale-output handling.
-  No valid epoch means no output, not a repeated last position.
+  No valid epoch means no position output, not a repeated last position. The status heartbeat
+  still reports missing/invalid/stale measurements; its validity flags belong to that contract.
 - [Receiver configuration](docs/receiver_configuration.md) owns the adopted receiver
   profile, saved-setting evidence, PyGPSClient cautions and remaining hardware checks.
 - [Documentation index](docs/README.md) separates current contracts from dated records.
@@ -47,7 +48,7 @@ The registered checks are:
 
 Inspect fixtures and subprocess/network behavior before selecting tests. Preserve USB
 RAM-only configuration behavior and the separation between standalone and correction-enabled
-launches. No build, test process, receiver or network connection ran for this documentation unit.
+launches. The 2026-11-12 documentation unit ran no build, test process, receiver or network connection; later checks have separate dated records.
 
 ## Evidence and data rules
 
@@ -60,3 +61,10 @@ Inspect metadata, paths, sizes and existing summaries before recordings/models/l
 Read payloads only for a named question with bounded files, topics, time and samples.
 Exclude generated output/data/cache from broad searches. Save complete logs separately,
 report bounded causal excerpts and preserve original exit codes. Follow [AGENTS.md](AGENTS.md).
+
+
+## GNSS documentation review (2026-11-17)
+
+[Documentation review](docs/validation/gnss_docs_review_20261117.md) records this prose-only
+check. [Implementation validation](docs/validation/gnss_reset_20261117.md) records the
+prior source build and offline tests; they were not rerun for the documentation check.

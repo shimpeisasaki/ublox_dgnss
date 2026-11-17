@@ -103,7 +103,12 @@ ros2 launch ublox_dgnss gnss_launch_compatible.launch.py
 ``` text
 /gnss/fix           sensor_msgs/msg/NavSatFix
 /gnss/fix_velocity  geometry_msgs/msg/TwistWithCovarianceStamped
+/gnss/status        ublox_ubx_msgs/msg/GnssStatus
 ```
+
+`/gnss/status` is the receiver output converter's reception/quality heartbeat, including
+RTK Float/Fixed and source timestamps. It continues reporting invalid/stale state when
+no valid position is emitted; see [the output contract](docs/gnss_output_contract.md).
 
 This launch defaults to standalone positioning: `rtcm_input_enabled:=false` disables
 both ROS correction input from `/ntrip_client/rtcm` and RTCM3 input on receiver USB.

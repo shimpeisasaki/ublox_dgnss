@@ -26,7 +26,8 @@ NAV-HPPOSLLH、NAV-COV、NAV-STATUSの **GPS iTOWが完全一致**した組だ�
 NAV-STATUSだけでは、使用した全衛星系や補正の種類を特定できないため、
 `NavSatStatus.service` は0（未特定）、`status` は有効な測位を表すSTATUS_FIXとする。
 これらの値から単独測位・SBAS・RTK Float・RTK Fixを区別しない。
-RTK状態は元の `/ubx_nav_status` のキャリア解・有効フラグで確認する。
+受信・RTK品質の公開状態は [status](#受信状況品質status互換launchでは-gnssstatus) で確認する。
+元の `/ubx_nav_status` のキャリア解・有効フラグは詳細診断に利用できる。
 
 ## 速度：`fix_velocity`（互換launchでは `/gnss/fix_velocity`）
 
@@ -62,21 +63,25 @@ headerはNAV-VELNEDからコピーし、角速度の不明表現（共分散inde
 待ち合わせ期限切れと復帰、重複・逆順・途絶時の非再配信、GPS週境界、不正時刻・座標。
 
 ```bash
+# workspace root; inspect test/test_epoch_output.py before executing synthetic ROS tests
 source /opt/ros/humble/setup.bash
-colcon build --base-paths src/ublox_dgnss src/rtcm_msgs --symlink-install \
-  --packages-up-to ublox_dgnss --executor sequential
-source install/setup.bash
-colcon test --base-paths src/ublox_dgnss src/rtcm_msgs \
-  --packages-select ublox_nav_sat_fix_hp_node \
+export CMAKE_BUILD_PARALLEL_LEVEL=2
+colcon build --base-paths src/ublox_dgnss \
+  --build-base build/gnss_output_check --install-base install/gnss_output_check \
+  --symlink-install --packages-up-to ublox_nav_sat_fix_hp_node --executor sequential
+source install/gnss_output_check/local_setup.bash
+colcon test --base-paths src/ublox_dgnss \
+  --build-base build/gnss_output_check --install-base install/gnss_output_check \
+  --packages-select ublox_nav_sat_fix_hp_node --executor sequential \
   --ctest-args -R '^epoch_output$' --return-code-on-test-failure
-colcon test-result --test-result-base build/ublox_nav_sat_fix_hp_node --verbose
+colcon test-result --test-result-base build/gnss_output_check --verbose
 ```
 
 実機の正常出力率、通信断、RTK Float/Fix、位置誤差の検証は別途必要。
 
 ## 受信状況・品質：`status`（互換launchでは `/gnss/status`）
 
-型は `ublox_ubx_msgs/msg/GnssStatus`。Reliable/Transient Local/depth 1で入力更新時と
+型は [`ublox_ubx_msgs/msg/GnssStatus`](../ublox_ubx_msgs/msg/GnssStatus.msg)。Reliable/Transient Local/depth 1で入力更新時と
 100 ms周期に配信し、未受信・途絶中も配信する。headerは評価時刻、status_stampと
 fix_stampは元観測時刻である。購読側は配信停止自体も検出すること。
 
@@ -94,3 +99,11 @@ solutionは最新NAV-STATUSからUNKNOWN/NO_FIX/AUTONOMOUS/DIFFERENTIAL/RTK_FLOA
 既存のfix/fix_velocityの選別・配信契約は変更しない。キャリア解種別不明でも有効な
 位置は成立し得る。リセット用の品質しきい値・成立継続時間・開始判断は利用側の責務。
 同一iTOWの品質、Float/Fix遷移、欠測時の失効は `test_epoch_output.py` で検証する。
+
+位置と状態の到着順が異なるため、新しいNAV-STATUSが先行すると、位置のiTOWが追いつくまで
+`position_valid=false` になることがある。heartbeat到着と品質の成立継続を同一視しない。
+利用側は `status_itow` と `fix_itow`、元時刻、有効フラグを合わせて判断する。
+
+[実装時のオフライン結果](validation/gnss_reset_20261117.md) と
+[文書再点検](validation/gnss_docs_review_20261117.md) を参照。
+上記は再検証用手順であり、文書再点検ではbuild・ROS試験を再実行していない。
